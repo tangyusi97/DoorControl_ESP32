@@ -40,6 +40,7 @@ static void check_sum(uint8_t *data, uint8_t len) {
 
 void finger_verify(void) {
   if (is_verifing) return;
+  is_verifing = 1;
 
   uart_flush(FINGER_UART_PORT_NUM);
   check_sum(AutoIdentify, sizeof(AutoIdentify));
@@ -48,12 +49,13 @@ void finger_verify(void) {
   uart_write_bytes(FINGER_UART_PORT_NUM, AutoIdentify, sizeof(AutoIdentify));
   uart_write_bytes(FINGER_UART_PORT_NUM, Checksum, sizeof(Checksum));
 
-  is_verifing = 1;
   can_read_verifing = 1;
 }
 
 void finger_enroll(void) {
+  can_read_verifing = 0;
   uart_flush(FINGER_UART_PORT_NUM);
+
   check_sum(ValidTempleteNum, sizeof(ValidTempleteNum));
   uart_write_bytes(FINGER_UART_PORT_NUM, Head, sizeof(Head));
   uart_write_bytes(FINGER_UART_PORT_NUM, Address, sizeof(Address));
