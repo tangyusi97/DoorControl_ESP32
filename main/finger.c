@@ -1,4 +1,5 @@
 #include "finger.h"
+#include "freertos/portmacro.h"
 #include "gpio.h"
 
 #include "driver/gpio.h"
@@ -48,12 +49,12 @@ void finger_verify(void) {
   uart_write_bytes(FINGER_UART_PORT_NUM, Address, sizeof(Address));
   uart_write_bytes(FINGER_UART_PORT_NUM, AutoIdentify, sizeof(AutoIdentify));
   uart_write_bytes(FINGER_UART_PORT_NUM, Checksum, sizeof(Checksum));
+  uart_wait_tx_done(FINGER_UART_PORT_NUM, 100 / portTICK_PERIOD_MS);
 
   can_read_verifing = 1;
 }
 
 void finger_enroll(void) {
-  can_read_verifing = 0;
   uart_flush(FINGER_UART_PORT_NUM);
 
   check_sum(ValidTempleteNum, sizeof(ValidTempleteNum));
@@ -61,6 +62,7 @@ void finger_enroll(void) {
   uart_write_bytes(FINGER_UART_PORT_NUM, Address, sizeof(Address));
   uart_write_bytes(FINGER_UART_PORT_NUM, ValidTempleteNum, sizeof(ValidTempleteNum));
   uart_write_bytes(FINGER_UART_PORT_NUM, Checksum, sizeof(Checksum));
+  uart_wait_tx_done(FINGER_UART_PORT_NUM, 100 / portTICK_PERIOD_MS);
 
   uint8_t data[14];
   int len = uart_read_bytes(FINGER_UART_PORT_NUM, data, 14,
@@ -80,7 +82,7 @@ void finger_enroll(void) {
 }
 
 void finger_verify_done() {
-  vTaskDelay(3000 / portTICK_PERIOD_MS);
+  vTaskDelay(2000 / portTICK_PERIOD_MS);
 
   check_sum(AutoIdentify, sizeof(AutoIdentify));
   uart_write_bytes(FINGER_UART_PORT_NUM, Head, sizeof(Head));
@@ -97,9 +99,11 @@ void finger_verify_done() {
 
 static void finger_read_task(void *args) {
   uint8_t data[17];
+  TickType_t ticks;
   while (1) {
     while (!can_read_verifing) {
       vTaskDelay(100 / portTICK_PERIOD_MS);
+      ticks = xTaskGetTickCount();
     }
 
     int len = uart_read_bytes(FINGER_UART_PORT_NUM, data, 17,
@@ -123,6 +127,12 @@ static void finger_read_task(void *args) {
         continue;
       }
     }
+
+    if ((xTaskGetTickCount() - ticks) > (10000 / portTICK_PERIOD_MS)) {
+      is_verifing = 0;
+      can_read_verifing = 0;
+    }
+
   }
 }
 
