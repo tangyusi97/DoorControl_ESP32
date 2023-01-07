@@ -14,7 +14,8 @@
 #include <string.h>
 
 TaskHandle_t finger_read_handle;
-static uint8_t isVerifing = 0;
+static uint8_t is_verifing = 0;       // 是否正在验证指纹过程
+static uint8_t can_read_verifing = 0; // 控制读取指纹数据包流程
 
 static uint8_t Head[] = {0xEF, 0x01}; // 数据包头
 static uint8_t Address[] = {0xFF, 0xFF, 0xFF, 0xFF}; // 地址
@@ -38,19 +39,21 @@ static void check_sum(uint8_t *data, uint8_t len) {
 }
 
 void finger_verify(void) {
-  if (isVerifing) return;
+  if (is_verifing) return;
 
+  uart_flush(FINGER_UART_PORT_NUM);
   check_sum(AutoIdentify, sizeof(AutoIdentify));
   uart_write_bytes(FINGER_UART_PORT_NUM, Head, sizeof(Head));
   uart_write_bytes(FINGER_UART_PORT_NUM, Address, sizeof(Address));
   uart_write_bytes(FINGER_UART_PORT_NUM, AutoIdentify, sizeof(AutoIdentify));
   uart_write_bytes(FINGER_UART_PORT_NUM, Checksum, sizeof(Checksum));
 
-  vTaskResume(finger_read_handle);
-  isVerifing = 1;
+  is_verifing = 1;
+  can_read_verifing = 1;
 }
 
 void finger_enroll(void) {
+  uart_flush(FINGER_UART_PORT_NUM);
   check_sum(ValidTempleteNum, sizeof(ValidTempleteNum));
   uart_write_bytes(FINGER_UART_PORT_NUM, Head, sizeof(Head));
   uart_write_bytes(FINGER_UART_PORT_NUM, Address, sizeof(Address));
@@ -75,7 +78,7 @@ void finger_enroll(void) {
 }
 
 void finger_verify_done() {
-  vTaskDelay(2000 / portTICK_PERIOD_MS);
+  vTaskDelay(3000 / portTICK_PERIOD_MS);
 
   check_sum(AutoIdentify, sizeof(AutoIdentify));
   uart_write_bytes(FINGER_UART_PORT_NUM, Head, sizeof(Head));
@@ -92,28 +95,29 @@ void finger_verify_done() {
 
 static void finger_read_task(void *args) {
   uint8_t data[17];
-
   while (1) {
-    // Read data from the UART
+    while (!can_read_verifing) {
+      vTaskDelay(100 / portTICK_PERIOD_MS);
+    }
+
     int len = uart_read_bytes(FINGER_UART_PORT_NUM, data, 17,
                               100 / portTICK_PERIOD_MS);
     if (len == 17) {
-      
       if (data[10] == 0x01 && data[9] != 0x00) {
         // 图像采集失败
-        isVerifing = 0;
-        vTaskSuspend(finger_read_handle);
+        is_verifing = 0;
+        can_read_verifing = 0;
         continue;
       }
-
       if (data[10] == 0x05) {
         // 获取指纹比对数据成功
         if (data[9] == 0x00) {
+          vTaskDelay(1000 / portTICK_PERIOD_MS);
           door_open_and_close();
           finger_verify_done();
         }
-        isVerifing = 0;
-        vTaskSuspend(finger_read_handle);
+        is_verifing = 0;
+        can_read_verifing = 0;
         continue;
       }
     }
@@ -141,5 +145,4 @@ void finger_init(void) {
                                UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
 
   xTaskCreate(finger_read_task, "finger_read_task", 2048, NULL, 10, &finger_read_handle);
-  vTaskSuspend(finger_read_handle);
 }
