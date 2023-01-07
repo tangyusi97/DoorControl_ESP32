@@ -1,0 +1,8 @@
+CompileFlags:
+  Remove: [-fno-tree-switch-conversion, -fstrict-volatile-bitfields]
+Diagnostics:
+  ClangTidy:
+    Add: [performance-*, bugprone-*, portability-*, modernize-*]
+    Remove: bugprone-narrowing-conversions
+InlayHints:
+  Enabled: No

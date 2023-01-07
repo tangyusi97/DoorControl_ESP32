@@ -1,0 +1,6 @@
+{
+    "clangd.path": "C:\\Users\\RAP\\.espressif\\tools\\esp-clang\\bin\\clangd.exe",
+    "idf.adapterTargetName": "esp32",
+    "idf.portWin": "COM4",
+    "idf.flashType": "UART",
+}
