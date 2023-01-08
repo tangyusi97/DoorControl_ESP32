@@ -99,7 +99,7 @@ void finger_verify_done() {
 
 static void finger_read_task(void *args) {
   uint8_t data[17];
-  TickType_t ticks;
+  TickType_t ticks = 0;
   while (1) {
     while (!can_read_verifing) {
       vTaskDelay(100 / portTICK_PERIOD_MS);
