@@ -14,7 +14,6 @@
 #include <stdio.h>
 #include <string.h>
 
-TaskHandle_t finger_read_handle;
 static uint8_t is_verifing = 0;       // 是否正在验证指纹过程
 static uint8_t can_read_verifing = 0; // 控制读取指纹数据包流程
 
@@ -68,8 +67,10 @@ void finger_enroll(void) {
   int len = uart_read_bytes(FINGER_UART_PORT_NUM, data, 14,
                               200 / portTICK_PERIOD_MS);
   if (len == 14 && data[9] == 0x00) {
+    ESP_LOGI("FINGER_ENROLL", "New finger ID is: %x", data[11]);
     set_AutoEnroll_id(data[11]);
   } else {
+    ESP_LOGE("FINGER_ENROLL", "Get finger ID failed");
     return;
   }
   
@@ -82,7 +83,7 @@ void finger_enroll(void) {
 }
 
 void finger_verify_done() {
-  vTaskDelay(2000 / portTICK_PERIOD_MS);
+  vTaskDelay(FINGER_GREEN_DELAY / portTICK_PERIOD_MS);
 
   check_sum(AutoIdentify, sizeof(AutoIdentify));
   uart_write_bytes(FINGER_UART_PORT_NUM, Head, sizeof(Head));
@@ -106,11 +107,13 @@ static void finger_read_task(void *args) {
       ticks = xTaskGetTickCount();
     }
 
+    ESP_LOGI("FINGER_VERIFY", "Reading response...");
     int len = uart_read_bytes(FINGER_UART_PORT_NUM, data, 17,
                               100 / portTICK_PERIOD_MS);
     if (len == 17) {
       if (data[10] == 0x01 && data[9] != 0x00) {
         // 图像采集失败
+        ESP_LOGE("FINGER_VERIFY", "No valid touch");
         is_verifing = 0;
         can_read_verifing = 0;
         continue;
@@ -118,9 +121,12 @@ static void finger_read_task(void *args) {
       if (data[10] == 0x05) {
         // 获取指纹比对数据成功
         if (data[9] == 0x00) {
+          ESP_LOGI("FINGER_VERIFY", "Finger Verified");
           vTaskDelay(FINGER_SUCCEED_ACTION_DELAY / portTICK_PERIOD_MS);
           door_open_and_close();
           finger_verify_done();
+        } else {
+          ESP_LOGI("FINGER_VERIFY", "Finger not found");
         }
         is_verifing = 0;
         can_read_verifing = 0;
@@ -129,6 +135,7 @@ static void finger_read_task(void *args) {
     }
 
     if ((xTaskGetTickCount() - ticks) > (FINGER_VERIFY_TIMEOUT / portTICK_PERIOD_MS)) {
+      ESP_LOGE("FINGER_VERIFY", "Wait timeout");
       is_verifing = 0;
       can_read_verifing = 0;
     }
@@ -154,5 +161,5 @@ void finger_init(void) {
   ESP_ERROR_CHECK(uart_set_pin(FINGER_UART_PORT_NUM, FINGER_TXD, FINGER_RXD,
                                UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
 
-  xTaskCreate(finger_read_task, "finger_read_task", 2048, NULL, 10, &finger_read_handle);
+  xTaskCreate(finger_read_task, "finger_read_task", 2048, NULL, 10, NULL);
 }

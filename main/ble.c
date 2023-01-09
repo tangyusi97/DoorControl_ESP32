@@ -24,7 +24,7 @@ static void ble_control(uint8_t *data, uint8_t data_len) {
                            0x9E, 0x0F, 0x87, 0x91, 0x23, 0x6F,
                            0xCB, 0xCF, 0x65, 0xDA, 0x51, 0x3B};
   if (compare_byte(data, open, sizeof(open)) == 0) {
-    ESP_LOGI("CONTROL", "open");
+    ESP_LOGI("BLE", "Key match: open");
     door_open();
     return;
   }
@@ -34,7 +34,7 @@ static void ble_control(uint8_t *data, uint8_t data_len) {
                            0x9E, 0x0F, 0x87, 0x91, 0x23, 0x6F,
                            0xCB, 0xCF, 0x65, 0xBA, 0x57, 0x58};
   if (compare_byte(data, stop, sizeof(stop)) == 0) {
-    ESP_LOGI("CONTROL", "stop");
+    ESP_LOGI("BLE", "Key match: stop");
     door_stop();
     return;
   }
@@ -44,7 +44,7 @@ static void ble_control(uint8_t *data, uint8_t data_len) {
                             0x9E, 0x0F, 0x87, 0x91, 0x23, 0x6F,
                             0xCB, 0xCF, 0x65, 0x7A, 0x5B, 0x9E};
   if (compare_byte(data, close, sizeof(close)) == 0) {
-    ESP_LOGI("CONTROL", "close");
+    ESP_LOGI("BLE", "Key match: close");
     door_close();
     return;
   }
@@ -54,7 +54,7 @@ static void ble_control(uint8_t *data, uint8_t data_len) {
                              0x9E, 0x0F, 0x87, 0x91, 0x23, 0x6F,
                              0xCB, 0xCF, 0x65, 0xC9, 0x54, 0x8D};
   if (compare_byte(data, enroll, sizeof(enroll)) == 0) {
-    ESP_LOGI("CONTROL", "enroll");
+    ESP_LOGI("BLE", "Key match: enroll");
     finger_enroll();
     return;
   }
@@ -64,7 +64,7 @@ static void ble_control(uint8_t *data, uint8_t data_len) {
                                      0x9E, 0x0F, 0x87, 0x91, 0x23, 0x6F,
                                      0xCB, 0xCF, 0x65, 0x87, 0x5E, 0xA4};
   if (compare_byte(data, open_and_close, sizeof(open_and_close)) == 0) {
-    ESP_LOGI("CONTROL", "open_and_close");
+    ESP_LOGI("BLE", "Key match: open_and_close");
     door_open_and_close();
     return;
   }
@@ -94,6 +94,7 @@ static int blecent_gap_event(struct ble_gap_event *event, void *arg) {
     if (rc != 0) {
       return 0;
     }
+    ESP_LOGI("BLE", "Advertisement found");
 
     uint8_t *data = (uint8_t *)fields.mfg_data;
     uint8_t data_len = fields.mfg_data_len;
