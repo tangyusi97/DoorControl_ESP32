@@ -118,7 +118,7 @@ static void finger_read_task(void *args) {
       if (data[10] == 0x05) {
         // 获取指纹比对数据成功
         if (data[9] == 0x00) {
-          vTaskDelay(1000 / portTICK_PERIOD_MS);
+          vTaskDelay(FINGER_SUCCEED_ACTION_DELAY / portTICK_PERIOD_MS);
           door_open_and_close();
           finger_verify_done();
         }
@@ -128,7 +128,7 @@ static void finger_read_task(void *args) {
       }
     }
 
-    if ((xTaskGetTickCount() - ticks) > (10000 / portTICK_PERIOD_MS)) {
+    if ((xTaskGetTickCount() - ticks) > (FINGER_VERIFY_TIMEOUT / portTICK_PERIOD_MS)) {
       is_verifing = 0;
       can_read_verifing = 0;
     }
@@ -137,8 +137,6 @@ static void finger_read_task(void *args) {
 }
 
 void finger_init(void) {
-  /* Configure parameters of an UART driver,
-   * communication pins and install the driver */
   uart_config_t uart_config = {
       .baud_rate = FINGER_UART_BAUD_RATE,
       .data_bits = UART_DATA_8_BITS,

@@ -54,7 +54,7 @@ static void door_open_and_close_task(void *args) {
       continue;
     }
     door_control(DOOR_STOP_GPIO);
-    vTaskDelay(CONTROL_INTERVAL / portTICK_PERIOD_MS);
+    vTaskDelay(STOP_DURATION / portTICK_PERIOD_MS);
 
     if (is_interr) {
       is_interr = 0;

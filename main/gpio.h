@@ -6,9 +6,9 @@
 #define DOOR_OPEN_GPIO 25
 #define DOOR_CLOSE_GPIO 26
 #define DOOR_STOP_GPIO 27
-#define KEY_DURATION 500      // 遥控器按键时长
-#define OPEN_DURATION 5000    // 开一下门的等待时长
-#define CONTROL_INTERVAL 1000 // 开一下门的等待时长
+#define KEY_DURATION 500   // 遥控器按键时长
+#define OPEN_DURATION 5000 // 开一下门的开门时长
+#define STOP_DURATION 1000 // 开一下门的停止时长
 
 void led_on(void);
 void led_off(void);
