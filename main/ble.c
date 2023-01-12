@@ -14,9 +14,17 @@
 
 static const char *tag = "NimBLE";
 
+static uint8_t ibeacon1_index = 0;
+static uint8_t ibeacon2_index = 1;
+static uint8_t ibeacon_rssi[2][IBEACON_AVG_WINDOW];
+static uint8_t ibeacon_tick[2] = {0, 0};
+static uint8_t is_ibeacon_valid[2] = {0, 0};
+
+static QueueHandle_t ibeacon_rssi_queue[2];
+
 static void ble_control(uint8_t *data, uint8_t data_len) {
 
-  if (data_len < 1)
+  if (data_len < 17)
     return;
 
   // 开门
@@ -70,35 +78,97 @@ static void ble_control(uint8_t *data, uint8_t data_len) {
   }
 }
 
-/**
- * The nimble host executes this callback when a GAP event occurs.  The
- * application associates a GAP event callback with each connection that is
- * established.  blecent uses the same callback for all connections.
- *
- * @param event                 The event being signalled.
- * @param arg                   Application-specified argument; unused by
- *                                  blecent.
- *
- * @return                      0 if the application successfully handled the
- *                                  event; nonzero on failure.  The semantics
- *                                  of the return code is specific to the
- *                                  particular GAP event being signalled.
- */
+// 检测iBeacon设备
+static uint8_t check_ibeacon(struct ble_gap_event *event, uint8_t ibeacon_num) {
+  static uint8_t ibeacon_addr[2][6] = {
+      {0x39, 0x03, 0x12, 0x22, 0x00, 0x51},  // ibeacon1
+      {0x3A, 0x03, 0x12, 0x22, 0x00, 0x51}}; // ibeacon2
+  if (compare_byte(event->disc.addr.val, ibeacon_addr[ibeacon_num], 6) == 0) {
+    ibeacon_rssi[ibeacon_num][ibeacon_tick[ibeacon_num]] = -event->disc.rssi;
+    ibeacon_tick[ibeacon_num]++;
+    if (ibeacon_tick[ibeacon_num] == IBEACON_AVG_WINDOW) {
+      ibeacon_tick[ibeacon_num] = 0;
+    }
+    uint16_t ibeacon_rssi_avg = 0;
+    for (uint8_t i = 0; i < IBEACON_AVG_WINDOW; i++) {
+      ibeacon_rssi_avg += ibeacon_rssi[ibeacon_num][i];
+    }
+    ibeacon_rssi_avg /= IBEACON_AVG_WINDOW;
+    xQueueSend(ibeacon_rssi_queue[ibeacon_num], &ibeacon_rssi_avg, 0);
+    return 0;
+  }
+  return 1;
+}
+
+// iBeacon设备距离判定
+static void check_ibeacon_distance_task(void *args) {
+  uint16_t ibeacon_rssi_avg;
+  uint8_t *ibeacon_num = (uint8_t *)args;
+  while (1) {
+    BaseType_t received =
+        xQueueReceive(ibeacon_rssi_queue[*ibeacon_num], &ibeacon_rssi_avg,
+                      IBEACON_LEAVE_TIMEOUT / portTICK_PERIOD_MS);
+    if (received == pdFALSE) {
+      is_ibeacon_valid[*ibeacon_num] = 0;
+      continue;
+    }
+    if (is_ibeacon_valid[*ibeacon_num] == 0 &&
+        ibeacon_rssi_avg >= IBEACON_ENTER_RSSI) {
+      continue;
+    }
+    if (ibeacon_rssi_avg <= IBEACON_LEAVE_RSSI) {
+      is_ibeacon_valid[*ibeacon_num] = 1;
+      continue;
+    }
+    is_ibeacon_valid[*ibeacon_num] = 0;
+  }
+}
+
+// 自动开门控制
+static void door_control_task(void *args) {
+  uint8_t last_state[2];
+  last_state[0] = is_ibeacon_valid[0];
+  last_state[1] = is_ibeacon_valid[1];
+  while (1) {
+    int8_t flag[2];
+    flag[0] = is_ibeacon_valid[0] - last_state[0];
+    flag[1] = is_ibeacon_valid[1] - last_state[1];
+    last_state[0] = is_ibeacon_valid[0];
+    last_state[1] = is_ibeacon_valid[1];
+    if (((flag[0] > 0) && (is_ibeacon_valid[1] == 0)) ||
+        ((flag[1] > 0) && (is_ibeacon_valid[0] == 0))) {
+      ESP_LOGI("BEACON", "Enter");
+      door_stop();
+      door_open();
+    } else if (((flag[0] < 0) && (is_ibeacon_valid[1] == 0)) ||
+               ((flag[1] < 0) && (is_ibeacon_valid[0] == 0))) {
+      ESP_LOGI("BEACON", "Leave");
+      door_stop();
+      door_close();
+    } else {
+      vTaskDelay(200 / portTICK_PERIOD_MS);
+    }
+  }
+}
+
 static int blecent_gap_event(struct ble_gap_event *event, void *arg) {
   struct ble_hs_adv_fields fields;
   int rc;
 
   if (event->type == BLE_GAP_EVENT_DISC) {
+
+    if ((check_ibeacon(event, 0) == 0) || (check_ibeacon(event, 1) == 0)) {
+      return 0;
+    };
+
     rc = ble_hs_adv_parse_fields(&fields, event->disc.data,
                                  event->disc.length_data);
     if (rc != 0) {
       return 0;
     }
-    ESP_LOGI("BLE", "Advertisement found");
 
     uint8_t *data = (uint8_t *)fields.mfg_data;
     uint8_t data_len = fields.mfg_data_len;
-
     ble_control(data, data_len);
   }
 
@@ -123,7 +193,7 @@ static void blecent_scan(void) {
   /* Tell the controller to filter duplicates; we don't want to process
    * repeated advertisements from the same device.
    */
-  disc_params.filter_duplicates = 1;
+  disc_params.filter_duplicates = 0;
 
   /**
    * Perform a passive scan.  I.e., don't send follow-up scan requests to
@@ -189,4 +259,16 @@ void ble_init(void) {
   assert(rc == 0);
 
   nimble_port_freertos_init(blecent_host_task);
+
+  ibeacon_rssi_queue[0] = xQueueCreate(2, sizeof(uint16_t));
+  ibeacon_rssi_queue[1] = xQueueCreate(2, sizeof(uint16_t));
+  for (uint8_t i = 0; i < IBEACON_AVG_WINDOW; i++) {
+    ibeacon_rssi[0][i] = 100; // 防止设备一开机判断为iBeacon进入
+    ibeacon_rssi[1][i] = 100; // 防止设备一开机判断为iBeacon进入
+  }
+  xTaskCreate(check_ibeacon_distance_task, "check_ibeacon_distance_task1", 2048,
+              &ibeacon1_index, 12, NULL);
+  xTaskCreate(check_ibeacon_distance_task, "check_ibeacon_distance_task2", 2048,
+              &ibeacon2_index, 12, NULL);
+  xTaskCreate(door_control_task, "door_control_task", 2048, NULL, 12, NULL);
 }

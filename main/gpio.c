@@ -4,48 +4,55 @@
 
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/portmacro.h"
 #include "freertos/task.h"
+#include "freertos/queue.h"
 #include <stdint.h>
 
 static uint8_t can_start = 0;      // 开始执行开一下门
 static uint8_t is_interr = 0;      // 开一下门过程是否被打断
-static uint8_t is_key_pressed = 0; // 遥控器是否有键按下
+
+static QueueHandle_t key_press_queue;
 
 void led_on(void) { gpio_set_level(BLINK_GPIO, 1); }
 
 void led_off(void) { gpio_set_level(BLINK_GPIO, 0); }
 
-static void key_press(gpio_num_t gpio) {
-  if (is_key_pressed)
-    return;
-  is_key_pressed = 1;
-  gpio_set_level(gpio, 1);
-  vTaskDelay(KEY_DURATION / portTICK_PERIOD_MS);
-  gpio_set_level(gpio, 0);
-  is_key_pressed = 0;
+static void key_press(uint8_t gpio) {
+  uint8_t key = gpio;
+  xQueueSend(key_press_queue, &key, 0);
 }
 
 void door_open(void) {
-  ESP_LOGI("GPIO", "Press OPEN");
   is_interr = 1;
   key_press(DOOR_OPEN_GPIO);
 }
 
 void door_stop(void) {
-  ESP_LOGI("GPIO", "Press STOP");
   is_interr = 1;
   key_press(DOOR_STOP_GPIO);
 }
 
 void door_close(void) {
-  ESP_LOGI("GPIO", "Press CLOSE");
   is_interr = 1;
   key_press(DOOR_CLOSE_GPIO);
 }
 
 void door_open_and_close(void) {
-  ESP_LOGI("GPIO", "Press OPEN_AND_CLOSE");
   can_start = 1;
+}
+
+
+static void key_press_task(void *args) {
+  uint8_t key = 0;
+  while (1) {
+    xQueueReceive(key_press_queue, &key, portMAX_DELAY);
+    ESP_LOGI("GPIO", "Key pressed: %d", key);
+    gpio_set_level(key, 1);
+    vTaskDelay(KEY_DURATION / portTICK_PERIOD_MS);
+    gpio_set_level(key, 0);
+  }
+
 }
 
 static void door_open_and_close_task(void *args) {
@@ -109,7 +116,9 @@ void gpio_init(void) {
   gpio_set_direction(DOOR_CLOSE_GPIO, GPIO_MODE_OUTPUT);
   gpio_set_pull_mode(DOOR_CLOSE_GPIO, GPIO_PULLDOWN_ONLY);
 
-  xTaskCreate(door_open_and_close_task, "door_open_and_close_task", 1024, NULL,
+  key_press_queue = xQueueCreate(2, sizeof(uint8_t));
+  xTaskCreate(key_press_task, "key_press_task", 2048, NULL, 10, NULL);
+  xTaskCreate(door_open_and_close_task, "door_open_and_close_task", 2048, NULL,
               14, NULL);
   xTaskCreate(detect_finger_task, "detect_finger_task", 2048, NULL, 12, NULL);
 }
