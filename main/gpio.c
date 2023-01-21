@@ -3,20 +3,67 @@
 #include "finger.h"
 
 #include "driver/gpio.h"
+#include "driver/ledc.h"
+#include "esp_err.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
-#include "freertos/task.h"
 #include "freertos/queue.h"
+#include "freertos/task.h"
 #include <stdint.h>
 
-static uint8_t can_start = 0;      // 开始执行开一下门
-static uint8_t is_interr = 0;      // 开一下门过程是否被打断
+static uint8_t can_start = 0; // 开始执行开一下门
+static uint8_t is_interr = 0; // 开一下门过程是否被打断
 
 static QueueHandle_t key_press_queue;
+static QueueHandle_t beep_queue;
 
-void led_on(void) { gpio_set_level(BLINK_GPIO, 1); }
+void led_on(void) { gpio_set_level(LED_GPIO, 1); }
 
-void led_off(void) { gpio_set_level(BLINK_GPIO, 0); }
+void led_off(void) { gpio_set_level(LED_GPIO, 0); }
+
+void beep_ok(void) {
+  uint8_t type = 0;
+  xQueueSend(beep_queue, &type, 0);
+}
+
+void beep_error(void) {
+  uint8_t type = 1;
+  xQueueSend(beep_queue, &type, 0);
+}
+
+static void beep_task(void *args) {
+  uint8_t type = 0;
+  while (1) {
+    xQueueReceive(beep_queue, &type, portMAX_DELAY);
+    if (type == 0) {
+      // 成功
+      ledc_set_freq(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0, 880 * 2);
+      ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0, 7000);
+      ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0);
+      vTaskDelay(150 / portTICK_PERIOD_MS);
+      ledc_set_freq(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0, 987 * 2);
+      vTaskDelay(150 / portTICK_PERIOD_MS);
+      ledc_set_freq(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0, 1318 * 2);
+      vTaskDelay(300 / portTICK_PERIOD_MS);
+      ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0, 0);
+      ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0);
+    } else {
+      // 失败
+      ledc_set_freq(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0, 1108 * 2);
+      ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0, 6000);
+      ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0);
+      vTaskDelay(150 / portTICK_PERIOD_MS);
+      ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0, 0);
+      ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0);
+      vTaskDelay(20 / portTICK_PERIOD_MS);
+      ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0, 6000);
+      ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0);
+      vTaskDelay(150 / portTICK_PERIOD_MS);
+      ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0, 0);
+      ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0);
+    }
+  }
+}
 
 static void key_press(uint8_t gpio) {
   uint8_t key = gpio;
@@ -38,10 +85,7 @@ void door_close(void) {
   key_press(DOOR_CLOSE_GPIO);
 }
 
-void door_open_and_close(void) {
-  can_start = 1;
-}
-
+void door_open_and_close(void) { can_start = 1; }
 
 static void key_press_task(void *args) {
   uint8_t key = 0;
@@ -52,7 +96,6 @@ static void key_press_task(void *args) {
     vTaskDelay(KEY_DURATION / portTICK_PERIOD_MS);
     gpio_set_level(key, 0);
   }
-
 }
 
 static void door_open_and_close_task(void *args) {
@@ -95,11 +138,31 @@ static void detect_finger_task(void *args) {
   }
 }
 
+static void ledc_init(void) {
+  // Prepare and then apply the LEDC PWM timer configuration
+  ledc_timer_config_t ledc_timer = {.speed_mode = LEDC_LOW_SPEED_MODE,
+                                    .timer_num = LEDC_TIMER_0,
+                                    .duty_resolution = LEDC_TIMER_13_BIT,
+                                    .freq_hz = 2048,
+                                    .clk_cfg = LEDC_AUTO_CLK};
+  ESP_ERROR_CHECK(ledc_timer_config(&ledc_timer));
+
+  // Prepare and then apply the LEDC PWM channel configuration
+  ledc_channel_config_t ledc_channel = {.speed_mode = LEDC_LOW_SPEED_MODE,
+                                        .channel = LEDC_CHANNEL_0,
+                                        .timer_sel = LEDC_TIMER_0,
+                                        .intr_type = LEDC_INTR_DISABLE,
+                                        .gpio_num = BEEP_GPIO,
+                                        .duty = 0,
+                                        .hpoint = 0};
+  ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel));
+}
+
 void gpio_init(void) {
   // 初始化LED灯
-  gpio_reset_pin(BLINK_GPIO);
-  gpio_set_direction(BLINK_GPIO, GPIO_MODE_OUTPUT);
-  gpio_set_pull_mode(BLINK_GPIO, GPIO_PULLDOWN_ONLY);
+  gpio_reset_pin(LED_GPIO);
+  gpio_set_direction(LED_GPIO, GPIO_MODE_OUTPUT);
+  gpio_set_pull_mode(LED_GPIO, GPIO_PULLDOWN_ONLY);
 
   // 初始化 开
   gpio_reset_pin(DOOR_OPEN_GPIO);
@@ -116,8 +179,13 @@ void gpio_init(void) {
   gpio_set_direction(DOOR_CLOSE_GPIO, GPIO_MODE_OUTPUT);
   gpio_set_pull_mode(DOOR_CLOSE_GPIO, GPIO_PULLDOWN_ONLY);
 
+  // 初始化BEEP
+  ledc_init();
+
   key_press_queue = xQueueCreate(2, sizeof(uint8_t));
+  beep_queue = xQueueCreate(2, sizeof(uint8_t));
   xTaskCreate(key_press_task, "key_press_task", 2048, NULL, 10, NULL);
+  xTaskCreate(beep_task, "beep_task", 2048, NULL, 10, NULL);
   xTaskCreate(door_open_and_close_task, "door_open_and_close_task", 2048, NULL,
               14, NULL);
   xTaskCreate(detect_finger_task, "detect_finger_task", 2048, NULL, 12, NULL);

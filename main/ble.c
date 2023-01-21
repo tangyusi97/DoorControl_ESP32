@@ -76,6 +76,8 @@ static void ble_control(uint8_t *data, uint8_t data_len) {
     door_open_and_close();
     return;
   }
+
+  // TODO 遥控器按键学习
 }
 
 // 检测iBeacon设备

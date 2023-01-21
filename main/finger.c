@@ -122,11 +122,13 @@ static void finger_read_task(void *args) {
         // 获取指纹比对数据成功
         if (data[9] == 0x00) {
           ESP_LOGI("FINGER_VERIFY", "Finger Verified");
+          beep_ok();
           vTaskDelay(FINGER_SUCCEED_ACTION_DELAY / portTICK_PERIOD_MS);
           door_open_and_close();
           finger_verify_done();
         } else {
           ESP_LOGI("FINGER_VERIFY", "Finger not found");
+          beep_error();
         }
         is_verifing = 0;
         can_read_verifing = 0;

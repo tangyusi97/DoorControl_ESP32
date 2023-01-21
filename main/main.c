@@ -6,7 +6,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-
+// TODO 重启按键
 static void restart_task(void *args) {
   TickType_t xLastWakeTime = xTaskGetTickCount();
   xTaskDelayUntil(&xLastWakeTime, 24 * 3600 * 1000 / portTICK_PERIOD_MS);
