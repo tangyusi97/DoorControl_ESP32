@@ -31,36 +31,42 @@ void beep_error(void) {
   xQueueSend(beep_queue, &type, 0);
 }
 
+// 设置蜂鸣器音高（hz）
+static void beep_set_freq(uint16_t hz) {
+  ESP_ERROR_CHECK(ledc_set_freq(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0, hz * 2));
+}
+
+// 设置蜂鸣器占空比（%）
+static void beep_set_duty(uint8_t duty) {
+  ESP_ERROR_CHECK(
+      ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0, 0x1FFF * duty / 100));
+  ESP_ERROR_CHECK(ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0));
+}
+
 static void beep_task(void *args) {
   uint8_t type = 0;
   while (1) {
     xQueueReceive(beep_queue, &type, portMAX_DELAY);
     if (type == 0) {
       // 成功
-      ledc_set_freq(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0, 880 * 2);
-      ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0, 7000);
-      ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0);
+      beep_set_freq(880);
+      beep_set_duty(85);
       vTaskDelay(150 / portTICK_PERIOD_MS);
-      ledc_set_freq(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0, 987 * 2);
+      beep_set_freq(987);
       vTaskDelay(150 / portTICK_PERIOD_MS);
-      ledc_set_freq(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0, 1318 * 2);
+      beep_set_freq(1318);
       vTaskDelay(300 / portTICK_PERIOD_MS);
-      ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0, 0);
-      ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0);
+      beep_set_duty(0);
     } else {
       // 失败
-      ledc_set_freq(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0, 1108 * 2);
-      ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0, 6000);
-      ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0);
+      beep_set_freq(1108);
+      beep_set_duty(75);
       vTaskDelay(150 / portTICK_PERIOD_MS);
-      ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0, 0);
-      ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0);
+      beep_set_duty(0);
       vTaskDelay(20 / portTICK_PERIOD_MS);
-      ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0, 6000);
-      ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0);
+      beep_set_duty(75);
       vTaskDelay(150 / portTICK_PERIOD_MS);
-      ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0, 0);
-      ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_TIMER_0);
+      beep_set_duty(0);
     }
   }
 }

@@ -1,8 +1,9 @@
 #include "ble.h"
-#include "esp_system.h"
-#include "finger.h"
-#include "freertos/portmacro.h"
 #include "gpio.h"
+#include "rf.h"
+#include "finger.h"
+
+#include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -15,6 +16,7 @@ static void restart_task(void *args) {
 }
 
 void app_main(void) {
+  rf_control_init();
   gpio_init();
   finger_init();
   ble_init();

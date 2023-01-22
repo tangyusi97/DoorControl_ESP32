@@ -1,16 +1,15 @@
 #include "ble.h"
 #include "finger.h"
 #include "gpio.h"
+#include "util.h"
 
 #include "esp_log.h"
 #include "nvs_flash.h"
-
 #include "host/ble_hs.h"
 #include "host/util/util.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 #include "services/gap/ble_svc_gap.h"
-#include "util.h"
 
 static const char *tag = "NimBLE";
 
