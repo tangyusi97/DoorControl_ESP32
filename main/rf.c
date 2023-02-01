@@ -7,7 +7,6 @@
 #include "freertos/portmacro.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
-#include <stdint.h>
 
 static gptimer_handle_t gptimer;
 static QueueHandle_t rf_send_queue;
@@ -15,10 +14,15 @@ static QueueHandle_t rf_data_queue;
 
 static uint32_t rf_data[3] = {
     0xE7AAA1, // 开
+    0xE7AAA4, // 停
     0xE7AAA8, // 关
-    0xE7AAA4  // 停
 };
 static uint8_t rf_tick = 0;
+
+void rf_send(uint8_t index) {
+  ESP_LOGI("RF", "send index: %d", index);
+  xQueueSend(rf_send_queue, &index, 0);
+}
 
 static bool IRAM_ATTR timer_on_alarm_cb(gptimer_handle_t timer,
                                         const gptimer_alarm_event_data_t *edata,
@@ -76,24 +80,6 @@ static void rf_send_task(void *args) {
       rf_tick = 0;
     }
   }
-}
-
-void rf_send_open(void) {
-  ESP_LOGI("RF", "open");
-  uint8_t index = 0;
-  xQueueSend(rf_send_queue, &index, 0);
-}
-
-void rf_send_close(void) {
-  ESP_LOGI("RF", "close");
-  uint8_t index = 1;
-  xQueueSend(rf_send_queue, &index, 0);
-}
-
-void rf_send_stop(void) {
-  ESP_LOGI("RF", "stop");
-  uint8_t index = 2;
-  xQueueSend(rf_send_queue, &index, 0);
 }
 
 void rf_control_init(void) {

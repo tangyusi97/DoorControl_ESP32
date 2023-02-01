@@ -1,6 +1,7 @@
 #include "finger.h"
+#include "control.h"
 #include "freertos/portmacro.h"
-#include "gpio.h"
+#include "beep.h"
 
 #include "driver/gpio.h"
 #include "driver/uart.h"
@@ -124,7 +125,7 @@ static void finger_read_task(void *args) {
           ESP_LOGI("FINGER_VERIFY", "Finger Verified");
           beep_ok();
           vTaskDelay(FINGER_SUCCEED_ACTION_DELAY / portTICK_PERIOD_MS);
-          door_open_and_close();
+          door_control(OPEN_AND_CLOSE);
           finger_verify_done();
         } else {
           ESP_LOGI("FINGER_VERIFY", "Finger not found");
@@ -142,6 +143,19 @@ static void finger_read_task(void *args) {
       can_read_verifing = 0;
     }
 
+  }
+}
+
+static void detect_finger_task(void *args) {
+  gpio_reset_pin(FINGER_TOUCH_GPIO);
+  gpio_set_direction(FINGER_TOUCH_GPIO, GPIO_MODE_INPUT);
+  gpio_set_pull_mode(FINGER_TOUCH_GPIO, GPIO_PULLDOWN_ONLY);
+
+  while (1) {
+    if (gpio_get_level(FINGER_TOUCH_GPIO)) {
+      finger_verify();
+    }
+    vTaskDelay(300 / portTICK_PERIOD_MS);
   }
 }
 
@@ -164,4 +178,5 @@ void finger_init(void) {
                                UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
 
   xTaskCreate(finger_read_task, "finger_read_task", 2048, NULL, 10, NULL);
+  xTaskCreate(detect_finger_task, "detect_finger_task", 2048, NULL, 12, NULL);
 }

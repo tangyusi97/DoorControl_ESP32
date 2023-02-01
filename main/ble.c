@@ -1,6 +1,6 @@
 #include "ble.h"
+#include "control.h"
 #include "finger.h"
-#include "gpio.h"
 #include "util.h"
 
 #include "esp_log.h"
@@ -32,7 +32,7 @@ static void ble_control(uint8_t *data, uint8_t data_len) {
                            0xCB, 0xCF, 0x65, 0xDA, 0x51, 0x3B};
   if (compare_byte(data, open, sizeof(open)) == 0) {
     ESP_LOGI("BLE", "Key match: open");
-    door_open();
+    door_control(OPEN);
     return;
   }
 
@@ -42,7 +42,7 @@ static void ble_control(uint8_t *data, uint8_t data_len) {
                            0xCB, 0xCF, 0x65, 0xBA, 0x57, 0x58};
   if (compare_byte(data, stop, sizeof(stop)) == 0) {
     ESP_LOGI("BLE", "Key match: stop");
-    door_stop();
+    door_control(STOP);
     return;
   }
 
@@ -52,7 +52,7 @@ static void ble_control(uint8_t *data, uint8_t data_len) {
                             0xCB, 0xCF, 0x65, 0x7A, 0x5B, 0x9E};
   if (compare_byte(data, close, sizeof(close)) == 0) {
     ESP_LOGI("BLE", "Key match: close");
-    door_close();
+    door_control(CLOSE);
     return;
   }
 
@@ -72,7 +72,7 @@ static void ble_control(uint8_t *data, uint8_t data_len) {
                                      0xCB, 0xCF, 0x65, 0x87, 0x5E, 0xA4};
   if (compare_byte(data, open_and_close, sizeof(open_and_close)) == 0) {
     ESP_LOGI("BLE", "Key match: open_and_close");
-    door_open_and_close();
+    door_control(OPEN_AND_CLOSE);
     return;
   }
 
@@ -126,7 +126,7 @@ static void check_ibeacon_distance_task(void *args) {
 }
 
 // 自动开门控制
-static void door_control_task(void *args) {
+static void door_auto_control_task(void *args) {
   uint8_t last_state[2];
   last_state[0] = is_ibeacon_valid[0];
   last_state[1] = is_ibeacon_valid[1];
@@ -139,13 +139,13 @@ static void door_control_task(void *args) {
     if (((flag[0] > 0) && (is_ibeacon_valid[1] == 0)) ||
         ((flag[1] > 0) && (is_ibeacon_valid[0] == 0))) {
       ESP_LOGI("BEACON", "Enter");
-      door_stop();
-      door_open();
+      door_control(STOP);
+      door_control(OPEN);
     } else if (((flag[0] < 0) && (is_ibeacon_valid[1] == 0)) ||
                ((flag[1] < 0) && (is_ibeacon_valid[0] == 0))) {
       ESP_LOGI("BEACON", "Leave");
-      door_stop();
-      door_close();
+      door_control(STOP);
+      door_control(OPEN);
     } else {
       vTaskDelay(200 / portTICK_PERIOD_MS);
     }
@@ -271,5 +271,5 @@ void ble_init(void) {
               &ibeacon1_index, 12, NULL);
   xTaskCreate(check_ibeacon_distance_task, "check_ibeacon_distance_task2", 2048,
               &ibeacon2_index, 12, NULL);
-  xTaskCreate(door_control_task, "door_control_task", 2048, NULL, 12, NULL);
+  xTaskCreate(door_auto_control_task, "door_auto_control_task", 2048, NULL, 12, NULL);
 }

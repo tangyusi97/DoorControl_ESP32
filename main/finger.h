@@ -3,6 +3,7 @@
 
 #define FINGER_TXD (17)
 #define FINGER_RXD (16)
+#define FINGER_TOUCH_GPIO 4
 
 #define FINGER_UART_PORT_NUM (2)
 #define FINGER_UART_BAUD_RATE (57600)
