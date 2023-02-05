@@ -2,23 +2,27 @@
 #include "ble.h"
 #include "control.h"
 #include "finger.h"
+#include "ibeacon.h"
 
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
+#include "freertos/portmacro.h"
+#include "freertos/projdefs.h"
+#include "freertos/timers.h"
 
-static void restart_task(void *args) {
-  TickType_t xLastWakeTime = xTaskGetTickCount();
-  xTaskDelayUntil(&xLastWakeTime, 7* 24 * 3600 * 1000 / portTICK_PERIOD_MS);
-  esp_restart();
-  while (1);
-}
+// TODO 用通知实现，调用taskyield
+
+static void restart_callback(TimerHandle_t xTimer) { esp_restart(); }
 
 void app_main(void) {
   beep_init();
-  control_init();
   finger_init();
+  control_init();
+  ibeacon_init();
   ble_init();
 
-  xTaskCreate(restart_task, "restart_task", 1024, NULL, 20, NULL);
+  TimerHandle_t restart_timer =
+      xTimerCreate("restart", 7 * 24 * 3600 * 1000 / portTICK_PERIOD_MS, pdTRUE,
+                   NULL, restart_callback);
+  xTimerStart(restart_timer, 0);
 }

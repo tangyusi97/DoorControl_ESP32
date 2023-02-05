@@ -14,8 +14,8 @@ static QueueHandle_t rf_data_queue;
 
 static uint32_t rf_data[3] = {
     0xE7AAA1, // 开
-    0xE7AAA4, // 停
     0xE7AAA8, // 关
+    0xE7AAA4, // 停
 };
 static uint8_t rf_tick = 0;
 
@@ -45,7 +45,7 @@ static void rf_send_task(void *args) {
 
       uint8_t data;
       while (rf_tick < 128) {
-        xQueueReceive(rf_data_queue, &data, portMAX_DELAY);
+        xQueueReceive(rf_data_queue, &data, portMAX_DELAY); // FIXME 使用信号量实现
         rf_tick++;
         if (rf_tick == 1) {
           gpio_set_level(RF_DATA_GPIO, 0);
@@ -109,7 +109,7 @@ void rf_control_init(void) {
   ESP_ERROR_CHECK(gptimer_set_alarm_action(gptimer, &alarm_config));
 
   // 创建发送任务
-  rf_send_queue = xQueueCreate(1, sizeof(uint8_t));
+  rf_send_queue = xQueueCreate(2, sizeof(uint8_t));
   rf_data_queue = xQueueCreate(1, sizeof(uint8_t));
   xTaskCreate(rf_send_task, "rf_send_task", 2048, NULL, 5, NULL);
 }
