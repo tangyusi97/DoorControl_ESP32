@@ -7,16 +7,15 @@
 #include "driver/uart.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/projdefs.h"
 #include "freertos/task.h"
+#include "freertos/event_groups.h"
 #include "hal/uart_types.h"
 #include "sdkconfig.h"
 #include "util.h"
-#include <stdint.h>
-#include <stdio.h>
-#include <string.h>
 
-static uint8_t is_verifing = 0;       // 是否正在验证指纹过程
-static uint8_t can_read_verifing = 0; // 控制读取指纹数据包流程
+// bit0: 是否开始读指纹数据包；bit1: 是否正在验证指纹过程
+static EventGroupHandle_t finger_event;
 
 static uint8_t Head[] = {0xEF, 0x01}; // 数据包头
 static uint8_t Address[] = {0xFF, 0xFF, 0xFF, 0xFF}; // 地址
@@ -40,8 +39,8 @@ static void check_sum(uint8_t *data, uint8_t len) {
 }
 
 void finger_verify(void) {
-  if (is_verifing) return;
-  is_verifing = 1;
+  if (xEventGroupGetBits(finger_event) & 0b10) return;
+  xEventGroupSetBits(finger_event, 0b10);
 
   uart_flush(FINGER_UART_PORT_NUM);
   check_sum(AutoIdentify, sizeof(AutoIdentify));
@@ -51,7 +50,8 @@ void finger_verify(void) {
   uart_write_bytes(FINGER_UART_PORT_NUM, Checksum, sizeof(Checksum));
   uart_wait_tx_done(FINGER_UART_PORT_NUM, 100 / portTICK_PERIOD_MS);
 
-  can_read_verifing = 1;
+  xEventGroupSetBits(finger_event, 0b01);
+
 }
 
 void finger_enroll(void) {
@@ -103,10 +103,8 @@ static void finger_read_task(void *args) {
   uint8_t data[17];
   TickType_t ticks = 0;
   while (1) {
-    while (!can_read_verifing) {
-      vTaskDelay(100 / portTICK_PERIOD_MS);
-      ticks = xTaskGetTickCount();
-    }
+    xEventGroupWaitBits(finger_event, 0b01, pdFALSE, pdFALSE, portMAX_DELAY);
+    ticks = xTaskGetTickCount();
 
     ESP_LOGI("FINGER_VERIFY", "Reading response...");
     int len = uart_read_bytes(FINGER_UART_PORT_NUM, data, 17,
@@ -115,8 +113,7 @@ static void finger_read_task(void *args) {
       if (data[10] == 0x01 && data[9] != 0x00) {
         // 图像采集失败
         ESP_LOGE("FINGER_VERIFY", "No valid touch");
-        is_verifing = 0;
-        can_read_verifing = 0;
+        xEventGroupClearBits(finger_event, 0b11);
         continue;
       }
       if (data[10] == 0x05) {
@@ -131,16 +128,14 @@ static void finger_read_task(void *args) {
           ESP_LOGI("FINGER_VERIFY", "Finger not found");
           beep_error();
         }
-        is_verifing = 0;
-        can_read_verifing = 0;
+        xEventGroupClearBits(finger_event, 0b11);
         continue;
       }
     }
 
     if ((xTaskGetTickCount() - ticks) > (FINGER_VERIFY_TIMEOUT / portTICK_PERIOD_MS)) {
       ESP_LOGE("FINGER_VERIFY", "Wait timeout");
-      is_verifing = 0;
-      can_read_verifing = 0;
+      xEventGroupClearBits(finger_event, 0b11);
     }
 
   }
@@ -155,7 +150,7 @@ static void detect_finger_task(void *args) {
     if (gpio_get_level(FINGER_TOUCH_GPIO)) {
       finger_verify();
     }
-    vTaskDelay(300 / portTICK_PERIOD_MS);
+    vTaskDelay(200 / portTICK_PERIOD_MS);
   }
 }
 
@@ -176,7 +171,8 @@ void finger_init(void) {
   ESP_ERROR_CHECK(uart_param_config(FINGER_UART_PORT_NUM, &uart_config));
   ESP_ERROR_CHECK(uart_set_pin(FINGER_UART_PORT_NUM, FINGER_TXD, FINGER_RXD,
                                UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
-
+                               
+  finger_event = xEventGroupCreate();
   xTaskCreate(finger_read_task, "finger_read_task", 2048, NULL, 10, NULL);
   xTaskCreate(detect_finger_task, "detect_finger_task", 2048, NULL, 12, NULL);
 }

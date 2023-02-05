@@ -5,12 +5,13 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
+#include "freertos/projdefs.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
 
 static gptimer_handle_t gptimer;
 static QueueHandle_t rf_send_queue;
-static QueueHandle_t rf_data_queue;
+static TaskHandle_t rf_send_handle;
 
 static uint32_t rf_data[3] = {
     0xE7AAA1, // 开
@@ -20,7 +21,6 @@ static uint32_t rf_data[3] = {
 static uint8_t rf_tick = 0;
 
 void rf_send(uint8_t index) {
-  ESP_LOGI("RF", "send index: %d", index);
   xQueueSend(rf_send_queue, &index, 0);
 }
 
@@ -28,8 +28,7 @@ static bool IRAM_ATTR timer_on_alarm_cb(gptimer_handle_t timer,
                                         const gptimer_alarm_event_data_t *edata,
                                         void *user_data) {
   BaseType_t high_task_awoken = pdFALSE;
-  uint8_t data = 0;
-  xQueueSendFromISR(rf_data_queue, &data, &high_task_awoken);
+  vTaskNotifyGiveFromISR(rf_send_handle, &high_task_awoken);
   // return whether we need to yield at the end of ISR
   return (high_task_awoken == pdTRUE);
 }
@@ -38,14 +37,14 @@ static void rf_send_task(void *args) {
   while (1) {
     uint8_t index;
     xQueueReceive(rf_send_queue, &index, portMAX_DELAY);
+    ESP_LOGI("RF", "send index: %d", index);
     for (uint8_t i = 0; i < RF_SEND_REPEAT; i++) {
       gpio_set_level(RF_DATA_GPIO, 1);
       ESP_ERROR_CHECK(gptimer_set_raw_count(gptimer, 0));
       ESP_ERROR_CHECK(gptimer_start(gptimer));
 
-      uint8_t data;
       while (rf_tick < 128) {
-        xQueueReceive(rf_data_queue, &data, portMAX_DELAY); // FIXME 使用信号量实现
+        ulTaskNotifyTake(pdFALSE, portMAX_DELAY);
         rf_tick++;
         if (rf_tick == 1) {
           gpio_set_level(RF_DATA_GPIO, 0);
@@ -110,6 +109,5 @@ void rf_control_init(void) {
 
   // 创建发送任务
   rf_send_queue = xQueueCreate(2, sizeof(uint8_t));
-  rf_data_queue = xQueueCreate(1, sizeof(uint8_t));
-  xTaskCreate(rf_send_task, "rf_send_task", 2048, NULL, 5, NULL);
+  xTaskCreate(rf_send_task, "rf_send_task", 2048, NULL, 5, &rf_send_handle);
 }

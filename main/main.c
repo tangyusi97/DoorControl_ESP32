@@ -10,7 +10,6 @@
 #include "freertos/projdefs.h"
 #include "freertos/timers.h"
 
-// TODO 用通知实现，调用taskyield
 
 static void restart_callback(TimerHandle_t xTimer) { esp_restart(); }
 
