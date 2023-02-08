@@ -8,6 +8,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include <stdint.h>
 
 static TaskHandle_t door_auto_control_handle;
 static TaskHandle_t check_ibeacon_distance_handle[IBEACONS_NUM];
@@ -39,6 +40,7 @@ uint8_t check_ibeacon(uint8_t *addr, uint8_t rssi) {
       xTaskNotify(check_ibeacon_distance_handle[ibeacon_i], ibeacon_rssi_avg,
                   eSetValueWithOverwrite);
       available = 1;
+      break;
     }
   }
   return available;
@@ -52,54 +54,59 @@ static void check_ibeacon_distance_task(void *args) {
   while (1) {
     ibeacon_rssi_avg =
         ulTaskNotifyTake(pdTRUE, IBEACON_LEAVE_TIMEOUT / portTICK_PERIOD_MS);
+    uint8_t last_state = is_ibeacon_valid[ibeacon_i];
     if (ibeacon_rssi_avg == 0) {
+      // 信号捕获超时
       is_ibeacon_valid[ibeacon_i] = 0;
       goto end;
     }
-    if (is_ibeacon_valid[ibeacon_i] == 0 &&
-        ibeacon_rssi_avg >= IBEACON_ENTER_RSSI) {
-      goto end;
+    if (is_ibeacon_valid[ibeacon_i] < IBEACON_ENTER_DEBOUNCE &&
+        ibeacon_rssi_avg > IBEACON_ENTER_RSSI) {
+      // iBeacon未进入有效范围，清零防抖计数
+      is_ibeacon_valid[ibeacon_i] = 0;
+      continue;
     }
+    // iBeacon已进入有效范围，判断是否离开
     if (ibeacon_rssi_avg <= IBEACON_LEAVE_RSSI) {
-      is_ibeacon_valid[ibeacon_i] = 1;
-      goto end;
+      if (is_ibeacon_valid[ibeacon_i] < IBEACON_ENTER_DEBOUNCE) {
+        is_ibeacon_valid[ibeacon_i]++;
+      }
+    } else {
+      is_ibeacon_valid[ibeacon_i] = 0;
     }
-    is_ibeacon_valid[ibeacon_i] = 0;
+
   end:
-    xTaskNotifyGive(door_auto_control_handle);
+    if (last_state != is_ibeacon_valid[ibeacon_i]) {
+      if (is_ibeacon_valid[ibeacon_i] == IBEACON_ENTER_DEBOUNCE) {
+        // valid超过防抖值，开门
+        xTaskNotify(door_auto_control_handle, 2, eSetValueWithOverwrite);
+      };
+      if (is_ibeacon_valid[ibeacon_i] == 0) {
+        // valid变为0，关门
+        xTaskNotify(door_auto_control_handle, 1, eSetValueWithOverwrite);
+      };
+    }
   }
 }
 
 // 自动开门控制
 static void door_auto_control_task(void *args) {
-  uint8_t last_state[IBEACONS_NUM];
-  for (uint8_t i = 0; i < IBEACONS_NUM; i++) {
-    last_state[i] = is_ibeacon_valid[i];
-  }
   while (1) {
-    ulTaskNotifyTake(pdFALSE, portMAX_DELAY);
-    int8_t flag[IBEACONS_NUM];
+    // 1:关门；2：开门；0：无效
+    uint8_t flag = ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     uint8_t ibeacon_valid_num = 0;
-    uint8_t open_active = 0;
-    uint8_t close_active = 0;
     for (uint8_t i = 0; i < IBEACONS_NUM; i++) {
-      flag[i] = is_ibeacon_valid[i] - last_state[i];
-      last_state[i] = is_ibeacon_valid[i];
-      ibeacon_valid_num += is_ibeacon_valid[i];
-      if (flag[i] < 0) {
-        close_active = 1;
-      }
-      if (flag[i] > 0) {
-        open_active = 1;
+      if (is_ibeacon_valid[i] == IBEACON_ENTER_DEBOUNCE) {
+        ibeacon_valid_num++;
       }
     }
-    if (ibeacon_valid_num == 1 && open_active == 1) {
+    if (ibeacon_valid_num == 1 && flag == 2) {
       ESP_LOGI("BEACON", "Enter");
       door_control(STOP);
       door_control(OPEN);
       continue;
     }
-    if (ibeacon_valid_num == 0 && close_active == 1) {
+    if (ibeacon_valid_num == 0 && flag == 1) {
       ESP_LOGI("BEACON", "Leave");
       door_control(STOP);
       door_control(CLOSE);
