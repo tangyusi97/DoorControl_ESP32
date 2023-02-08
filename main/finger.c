@@ -19,9 +19,9 @@ static EventGroupHandle_t finger_event;
 
 static uint8_t Head[] = {0xEF, 0x01}; // 数据包头
 static uint8_t Address[] = {0xFF, 0xFF, 0xFF, 0xFF}; // 地址
-static uint8_t AutoIdentify[] = {0x01, 0x00, 0x08, 0x32, 0x03, 0xFF, 0xFF, 0x00, 0x01}; // 自动验证指令码，和值校验
-static uint8_t ValidTempleteNum[] = {0x01, 0x00, 0x03, 0x1D}; // 查询指纹数量指令码
-static uint8_t AutoEnroll[] = {0x01, 0x00, 0x08, 0x31, 0x00, 0xFF, 0x04, 0x00, 0x55}; // 注册指纹指令码
+static uint8_t AutoIdentify[] = {0x01, 0x00, 0x08, 0x32, 0x03, 0xFF, 0xFF, 0x00, 0x01}; // 自动验证指纹
+static uint8_t ValidTempleteNum[] = {0x01, 0x00, 0x03, 0x1D}; // 查询指纹数量
+static uint8_t AutoEnroll[] = {0x01, 0x00, 0x08, 0x31, 0x00, 0xFF, 0x04, 0x00, 0x55}; // 注册指纹
 static uint8_t CancelCmd[] = {0x01, 0x00, 0x03, 0x30, 0x00, 0x34}; //  取消命令（已加校验码）
 static uint8_t Checksum[] = {0, 0}; // 储存和值校验
 
@@ -101,14 +101,12 @@ void finger_verify_done() {
 
 static void finger_read_task(void *args) {
   uint8_t data[17];
-  TickType_t ticks = 0;
   while (1) {
     xEventGroupWaitBits(finger_event, 0b01, pdFALSE, pdFALSE, portMAX_DELAY);
-    ticks = xTaskGetTickCount();
 
     ESP_LOGI("FINGER_VERIFY", "Reading response...");
     int len = uart_read_bytes(FINGER_UART_PORT_NUM, data, 17,
-                              100 / portTICK_PERIOD_MS);
+                              FINGER_VERIFY_TIMEOUT / portTICK_PERIOD_MS);
     if (len == 17) {
       if (data[10] == 0x01 && data[9] != 0x00) {
         // 图像采集失败
@@ -133,7 +131,7 @@ static void finger_read_task(void *args) {
       }
     }
 
-    if ((xTaskGetTickCount() - ticks) > (FINGER_VERIFY_TIMEOUT / portTICK_PERIOD_MS)) {
+    if (len == 0) {
       ESP_LOGE("FINGER_VERIFY", "Wait timeout");
       xEventGroupClearBits(finger_event, 0b11);
     }

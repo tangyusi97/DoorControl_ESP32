@@ -1,4 +1,5 @@
 #include "ibeacon.h"
+#include "beep.h"
 #include "freertos/portmacro.h"
 #include "freertos/projdefs.h"
 #include "util.h"
@@ -18,8 +19,10 @@ static uint8_t is_ibeacon_valid[IBEACONS_NUM];
 
 // iBeacon的MAC地址，顺序是反的
 static uint8_t ibeacon_addr[IBEACONS_NUM][6] = {
-    {0x39, 0x03, 0x12, 0x22, 0x00, 0x51}, // ibeacon1
-    {0x3A, 0x03, 0x12, 0x22, 0x00, 0x51}, // ibeacon2
+    {0x06, 0x01, 0x23, 0x05, 0x22, 0x20}, // ibeacon1
+    {0x0A, 0x01, 0x23, 0x05, 0x22, 0x20}, // ibeacon2
+    // {0x39, 0x03, 0x12, 0x22, 0x00, 0x51}, // ibeacon1
+    // {0x3A, 0x03, 0x12, 0x22, 0x00, 0x51}, // ibeacon2
 };
 
 // 检测iBeacon设备
@@ -37,6 +40,7 @@ uint8_t check_ibeacon(uint8_t *addr, uint8_t rssi) {
         ibeacon_rssi_avg += ibeacon_rssi[ibeacon_i][i];
       }
       ibeacon_rssi_avg /= IBEACON_AVG_WINDOW;
+      ESP_LOGD("IBEACON", "%d", ibeacon_rssi_avg);
       xTaskNotify(check_ibeacon_distance_handle[ibeacon_i], ibeacon_rssi_avg,
                   eSetValueWithOverwrite);
       available = 1;
@@ -67,7 +71,7 @@ static void check_ibeacon_distance_task(void *args) {
       continue;
     }
     // iBeacon已进入有效范围，判断是否离开
-    if (ibeacon_rssi_avg <= IBEACON_LEAVE_RSSI) {
+    if (ibeacon_rssi_avg < IBEACON_LEAVE_RSSI) {
       if (is_ibeacon_valid[ibeacon_i] < IBEACON_ENTER_DEBOUNCE) {
         is_ibeacon_valid[ibeacon_i]++;
       }

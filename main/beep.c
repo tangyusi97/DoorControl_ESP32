@@ -89,7 +89,7 @@ void beep_init(void) {
 
   ledc_init();
 
-  beep_queue = xQueueCreate(2, sizeof(uint8_t));
+  beep_queue = xQueueCreate(3, sizeof(uint8_t));
 
   xTaskCreate(beep_task, "beep_task", 2048, NULL, 10, NULL);
 }
