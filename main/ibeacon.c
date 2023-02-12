@@ -1,7 +1,9 @@
 #include "ibeacon.h"
 #include "beep.h"
+#include "esp_err.h"
 #include "freertos/portmacro.h"
 #include "freertos/projdefs.h"
+#include "nvs.h"
 #include "util.h"
 
 #include "control.h"
@@ -9,13 +11,17 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
-#include <stdint.h>
+#include "nvs_flash.h"
 
 static TaskHandle_t door_auto_control_handle;
 static TaskHandle_t check_ibeacon_distance_handle[IBEACONS_NUM];
 static uint8_t ibeacon_rssi[IBEACONS_NUM][IBEACON_AVG_WINDOW];
 static uint8_t ibeacon_tick[IBEACONS_NUM];
 static uint8_t is_ibeacon_valid[IBEACONS_NUM];
+
+static uint8_t ibeacon_enter_rssi = IBEACON_ENTER_RSSI_DEFAULT;
+static uint8_t ibeacon_enter_debounce = IBEACON_ENTER_DEBOUNCE_DEFAULT;
+static uint8_t ibeacon_leave_rssi = IBEACON_LEAVE_RSSI_DEFAULT;
 
 // iBeacon的MAC地址，顺序是反的
 static uint8_t ibeacon_addr[IBEACONS_NUM][6] = {
@@ -64,15 +70,15 @@ static void check_ibeacon_distance_task(void *args) {
       is_ibeacon_valid[ibeacon_i] = 0;
       goto end;
     }
-    if (is_ibeacon_valid[ibeacon_i] < IBEACON_ENTER_DEBOUNCE &&
-        ibeacon_rssi_avg > IBEACON_ENTER_RSSI) {
+    if (is_ibeacon_valid[ibeacon_i] < ibeacon_enter_debounce &&
+        ibeacon_rssi_avg > ibeacon_enter_rssi) {
       // iBeacon未进入有效范围，清零防抖计数
       is_ibeacon_valid[ibeacon_i] = 0;
       continue;
     }
     // iBeacon已进入有效范围，判断是否离开
-    if (ibeacon_rssi_avg < IBEACON_LEAVE_RSSI) {
-      if (is_ibeacon_valid[ibeacon_i] < IBEACON_ENTER_DEBOUNCE) {
+    if (ibeacon_rssi_avg < ibeacon_leave_rssi) {
+      if (is_ibeacon_valid[ibeacon_i] < ibeacon_enter_debounce) {
         is_ibeacon_valid[ibeacon_i]++;
       }
     } else {
@@ -81,7 +87,7 @@ static void check_ibeacon_distance_task(void *args) {
 
   end:
     if (last_state != is_ibeacon_valid[ibeacon_i]) {
-      if (is_ibeacon_valid[ibeacon_i] == IBEACON_ENTER_DEBOUNCE) {
+      if (is_ibeacon_valid[ibeacon_i] == ibeacon_enter_debounce) {
         // valid超过防抖值，开门
         xTaskNotify(door_auto_control_handle, 2, eSetValueWithOverwrite);
       };
@@ -100,7 +106,7 @@ static void door_auto_control_task(void *args) {
     uint8_t flag = ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     uint8_t ibeacon_valid_num = 0;
     for (uint8_t i = 0; i < IBEACONS_NUM; i++) {
-      if (is_ibeacon_valid[i] == IBEACON_ENTER_DEBOUNCE) {
+      if (is_ibeacon_valid[i] == ibeacon_enter_debounce) {
         ibeacon_valid_num++;
       }
     }
@@ -119,6 +125,48 @@ static void door_auto_control_task(void *args) {
   }
 }
 
+static void load_ibeacon_config(void) {
+  nvs_handle_t my_handle;
+  esp_err_t err = nvs_open("ibeacon", NVS_READONLY, &my_handle);
+  if (err == ESP_OK) {
+    uint32_t ibeacon_config = 0;
+    err = nvs_get_u32(my_handle, "ibeacon_config", &ibeacon_config);
+    if (err == ESP_OK) {
+      ibeacon_enter_rssi = ibeacon_config >> 16;
+      ibeacon_enter_debounce = ibeacon_config >> 8;
+      ibeacon_leave_rssi = ibeacon_config;
+      ESP_LOGI("IBEACON", "Config Load: enter:%d, debounce:%d, leave:%d",
+               ibeacon_enter_rssi, ibeacon_enter_debounce, ibeacon_leave_rssi);
+    }
+    nvs_close(my_handle);
+  }
+}
+
+void save_ibeacon_config(uint32_t config) {
+  uint8_t _ibeacon_enter_rssi = config >> 16;
+  uint8_t _ibeacon_enter_debounce = config >> 8;
+  uint8_t _ibeacon_leave_rssi = config;
+  if (ibeacon_enter_rssi == _ibeacon_enter_rssi &&
+      ibeacon_enter_debounce == _ibeacon_enter_debounce &&
+      ibeacon_leave_rssi == _ibeacon_leave_rssi) {
+    return;
+  }
+  ibeacon_enter_rssi = _ibeacon_enter_rssi;
+  ibeacon_enter_debounce = _ibeacon_enter_debounce;
+  ibeacon_leave_rssi = _ibeacon_leave_rssi;
+  ESP_LOGI("IBEACON", "Config Save: enter:%d, debounce:%d, leave:%d",
+           ibeacon_enter_rssi, ibeacon_enter_debounce, ibeacon_leave_rssi);
+
+  nvs_handle_t my_handle;
+  esp_err_t err = nvs_open("ibeacon", NVS_READWRITE, &my_handle);
+  if (err == ESP_OK) {
+    uint32_t ibeacon_config = config;
+    nvs_set_u32(my_handle, "ibeacon_config", ibeacon_config);
+    nvs_commit(my_handle);
+    nvs_close(my_handle);
+  }
+}
+
 void ibeacon_init(void) {
   for (uint8_t ibeacon_i = 0; ibeacon_i < IBEACONS_NUM; ibeacon_i++) {
     xTaskCreate(check_ibeacon_distance_task, "check_ibeacon_distance_task",
@@ -130,6 +178,7 @@ void ibeacon_init(void) {
     ibeacon_tick[ibeacon_i] = 0;
     is_ibeacon_valid[ibeacon_i] = 0;
   }
+  load_ibeacon_config();
 
   xTaskCreate(door_auto_control_task, "door_auto_control_task", 2048, NULL, 13,
               &door_auto_control_handle);

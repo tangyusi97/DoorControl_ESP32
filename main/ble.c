@@ -5,7 +5,6 @@
 #include "util.h"
 
 #include "esp_log.h"
-#include "nvs_flash.h"
 #include "host/ble_hs.h"
 #include "host/util/util.h"
 #include "nimble/nimble_port.h"
@@ -16,7 +15,7 @@ static const char *tag = "NimBLE";
 
 static void ble_control(uint8_t *data, uint8_t data_len) {
 
-  if (data_len < 17)
+  if (data_len < 18)
     return;
 
   // 开门
@@ -69,7 +68,16 @@ static void ble_control(uint8_t *data, uint8_t data_len) {
     return;
   }
 
-  // TODO 遥控器按键学习
+  // 参数设置
+  static uint8_t set_ibeacon_config[] = {0xF0, 0xFF, 0x6D, 0xB6, 0x43,
+                                         0x4F, 0x9E, 0x0F, 0x87, 0x91,
+                                         0x23, 0x6F, 0xCB, 0xCF, 0x6A};
+  if (compare_byte(data, set_ibeacon_config, sizeof(set_ibeacon_config)) == 0) {
+    ESP_LOGI("BLE", "Key match: set_ibeacon_config");
+    uint32_t config = (data[15] << 16) + (data[16] << 8) + data[17];
+    save_ibeacon_config(config);
+    return;
+  }
 }
 
 static int blecent_gap_event(struct ble_gap_event *event, void *arg) {
@@ -160,15 +168,6 @@ static void blecent_host_task(void *param) {
 
 void ble_init(void) {
   int rc;
-  /* Initialize NVS — it is used to store PHY calibration data */
-  esp_err_t ret = nvs_flash_init();
-  if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
-      ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-    ESP_ERROR_CHECK(nvs_flash_erase());
-    ret = nvs_flash_init();
-  }
-  ESP_ERROR_CHECK(ret);
-
   nimble_port_init();
   /* Configure the host. */
   ble_hs_cfg.reset_cb = blecent_on_reset;
@@ -180,5 +179,4 @@ void ble_init(void) {
   assert(rc == 0);
 
   nimble_port_freertos_init(blecent_host_task);
-
 }
