@@ -13,7 +13,7 @@ static gptimer_handle_t gptimer;
 static QueueHandle_t rf_send_queue;
 static TaskHandle_t rf_send_handle;
 
-static uint32_t rf_data[3] = {
+static const uint32_t rf_data[3] = {
     0xE7AAA1, // 开
     0xE7AAA8, // 关
     0xE7AAA4, // 停
