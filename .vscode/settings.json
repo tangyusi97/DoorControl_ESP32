@@ -4,4 +4,7 @@
     "idf.portWin": "COM4",
     "idf.flashType": "UART",
     "editor.indentSize": 2,
+    "idf.openOcdConfigs": [
+        "board/esp32-wrover-kit-3.3v.cfg"
+    ],
 }

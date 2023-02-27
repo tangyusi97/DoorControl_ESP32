@@ -15,6 +15,7 @@
 
 static TaskHandle_t door_auto_control_handle;
 static TaskHandle_t check_ibeacon_distance_handle[IBEACONS_NUM];
+static uint8_t ibeacon_num[IBEACONS_NUM];
 static uint8_t ibeacon_rssi[IBEACONS_NUM][IBEACON_AVG_WINDOW];
 static uint8_t ibeacon_tick[IBEACONS_NUM];
 static uint8_t is_ibeacon_valid[IBEACONS_NUM];
@@ -169,8 +170,9 @@ void save_ibeacon_config(uint32_t config) {
 
 void ibeacon_init(void) {
   for (uint8_t ibeacon_i = 0; ibeacon_i < IBEACONS_NUM; ibeacon_i++) {
+    ibeacon_num[ibeacon_i] = ibeacon_i;
     xTaskCreate(check_ibeacon_distance_task, "check_ibeacon_distance_task",
-                2048, &ibeacon_i, 12,
+                2048, &ibeacon_num[ibeacon_i], 12,
                 &check_ibeacon_distance_handle[ibeacon_i]);
     for (uint8_t i = 0; i < IBEACON_AVG_WINDOW; i++) {
       ibeacon_rssi[ibeacon_i][i] = 100; // 防止设备一开机判断为iBeacon进入
